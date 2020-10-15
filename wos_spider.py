@@ -12,86 +12,267 @@ Env.:       Python 3.7.3, WIN 10
 
 import time
 import random
+import logging
+
 from selenium import webdriver
-from selenium.webdriver.support.select import Select
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.select import Select
+from selenium.common.exceptions import NoSuchElementException, ElementNotInteractableException
+
+
+# logging configuration
+logger = logging.getLogger('wos_spider_logger')
+if (logger.hasHandlers()):
+    logger.handlers.clear()
+logger.setLevel('DEBUG')
+BASIC_FORMAT = '[%(asctime)s - %(levelname)s]: %(message)s'
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+formatter = logging.Formatter(BASIC_FORMAT, DATE_FORMAT)
+# console logger handler
+chlr = logging.StreamHandler()
+chlr.setFormatter(formatter)
+chlr.setLevel('INFO')
+# file logger handler
+time_stamp = time.strftime('%b%d_%H_%M', time.localtime())
+fhlr = logging.FileHandler(f'logs/wos_spider_{time_stamp}.log')
+fhlr.setFormatter(formatter)
+fhlr.setLevel('DEBUG')
+# set logger handler
+logger.addHandler(chlr)
+logger.addHandler(fhlr)
 
 # url
 root_url = 'https://apps.webofknowledge.com'
+# paper1 = 'Level set formulation for automatic medical image segmentation based on fuzzy clustering'
 
 # start browser
-options = webdriver.ChromeOptions()
-options.add_experimental_option("excludeSwitches", ["enable-automation"])
-options.add_experimental_option('useAutomationExtension', False)
-driver = webdriver.Chrome(options=options)
-driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-    "source": """
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => undefined
+def initial_driver():
+    options = webdriver.ChromeOptions()
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    driver = webdriver.Chrome(options=options)
+    driver.implicitly_wait(30)
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+        Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+        })
+    """
     })
-  """
-})
+    return driver
 
 
-driver.get(root_url)
-title = driver.title
-print(title)
-time.sleep(3)
+def search_paper(paper_title, author='Yang, Yunyun'):
+    logger.info(f'Processing {paper}')
+    # add a search row if there only exist one
+    add_row_button = driver.find_element_by_xpath('//*[@id="addSearchRow1"]/a')
+    if add_row_button.text == '+ 添加行':
+        add_row_button.click()
+        logger.debug('Add new line in search block')
+
+    # put paper title
+    input1 = driver.find_element_by_xpath('//*[@id="value(input1)"]')
+    input1.clear()
+    input1.send_keys(paper_title)
+    s1 = Select(driver.find_element_by_xpath('//*[@id="select1"]'))
+    s1.select_by_visible_text('标题')
+
+    # put author name
+    input2 = driver.find_element_by_xpath('//*[@id="value(input2)"]')
+    input2.clear()
+    input2.send_keys(author)
+    s2 = Select(driver.find_element_by_xpath('//*[@id="select2"]'))
+    s2.select_by_visible_text('作者')
+
+    # click search
+    driver.find_element_by_id('searchCell2').click()
 
 
-
-paper1 = 'Level set formulation for automatic medical image segmentation based on fuzzy clustering'
-
-driver.find_element_by_xpath('//*[@id="addSearchRow1"]/a').click()
-
-driver.find_element_by_xpath('//*[@id="value(input1)"]').send_keys(
-    'Level set formulation for automatic medical image segmentation based on fuzzy clustering')
-s1 = Select(driver.find_element_by_xpath('//*[@id="select1"]'))
-s1.select_by_visible_text('标题')
-
-driver.find_element_by_xpath('//*[@id="value(input1)"]').send_keys(paper1)
-s1 = Select(driver.find_element_by_xpath('//*[@id="select1"]'))
-s1.select_by_visible_text('标题')
-
-driver.find_element_by_xpath('//*[@id="value(input2)"]').send_keys('Yang, Yunyun')
-s2 = Select(driver.find_element_by_xpath('//*[@id="select2"]'))
-s2.select_by_visible_text('作者')
+def add_to_monitor(num):
+    checkbox = driver.find_element_by_id(f'_summary_checkbox_{num}')
+    if not checkbox.is_selected():
+        checkbox.send_keys(Keys.SPACE)
+        driver.find_element_by_id('markedListButton').click()
 
 
-driver.find_element_by_id('searchCell2').click()
+def get_journal_info(idx):
+    try:
+        # click journal info button
+        driver.find_element_by_css_selector('a.focusable-link').click()
+        cite_text = driver.find_element_by_id(f'show_journal_overlay_{idx}').text
 
-driver.find_element_by_id('_summary_checkbox_1').send_keys(Keys.SPACE)
-driver.find_element_by_id('markedListButton').click()
+        # extract IF and JCR Rank
+        impact_factor = [float(x) for x in cite_text.split('\n')[2].split()] # [this year, 5 year]
+        jcr_rank = cite_text.split('\n')[5].split()[-1]
 
-driver.find_element_by_xpath('//*[@id="RECORD_1"]/div[3]/div/div[1]/div/a').click()
+        logger.info(f'Journal IF is {impact_factor[0]}, JCR rank is {jcr_rank}')
 
-driver.find_element_by_xpath('//*[@id="show_journal_overlay_link_1"]/p/a').click()
-# time.sleep(3.14)
-# driver.find_element_by_id('RECORD_1').text
-# rc1 = driver.find_element_by_id('RECORD_1')
-# paper_title = rc1.find_element_by_xpath('div[3]/div/div[1]').text
+        # close journal info window
+        random_sleep(mu=2)
+        driver.find_element_by_css_selector(f'#show_journal_overlay_{idx} > p.closeWindow > button').click()
+        return impact_factor[0], jcr_rank, cite_text
 
-# 期刊
-driver.find_element_by_css_selector('a.focusable-link').click()
-driver.find_element_by_id('show_journal_overlay_1').text
-driver.find_element_by_css_selector('#show_journal_overlay_1 > p.closeWindow > button').click()
+    except ElementNotInteractableException:
+        logger.info(f'Cannot find JCR report')
+        return 0, None, None
 
-# 引用次数 0 次
-driver.find_element_by_css_selector('.flex-row-partition1 > sapn').text
 
-# 引用次数 大于0
-driver.find_element_by_css_selector('.flex-row-partition1 > a').text
-driver.find_element_by_css_selector('.flex-row-partition1 > a').click()
+def get_citation_num():
+    cite_num_text = driver.find_element_by_class_name('flex-row-partition1').text
+    cite_num = int(cite_num_text.split('\n')[0])
+    logger.info(f'Cited by {cite_num} papers')
+    return cite_num
 
-# 返回搜索页
-driver.find_element_by_xpath('//*[@id="skip-to-navigation"]/ul[1]/li[1]/a').click()
 
-# 所有页面信息
-driver.find_element_by_id('records_form').text.split('\n')
+def back_to_main():
+    # back to search page
+    driver.find_element_by_xpath('//*[@id="skip-to-navigation"]/ul[1]/li[1]/a').click()
 
-# 被引用的下一页
-driver.find_element_by_css_selector('#paginationForm2 > span > a.paginationNext.snowplow-navigation-nextpage-bottom').click()
 
-# 页码
-driver.find_element_by_id('paginationForm2').text
+def go_to_next_cite():
+    # page number
+    page_num = driver.find_element_by_id('paginationForm2').text
+    logger.info(f'Processing citation in {page_num}')
+    # click next page
+    driver.find_element_by_css_selector('#paginationForm2 > span > a.paginationNext.snowplow-navigation-nextpage-bottom').click()
 
+
+def random_sleep(mu=3, sigma=1, min=1):
+    sleep_time = random.normalvariate(mu, sigma)
+    sleep_time = max(sleep_time, min)
+    time.sleep(sleep_time)
+
+
+def verify_title(web_title, given_title):
+    return True
+
+
+def get_cite_detail():
+    try:
+        address = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[6]/table[2]/tbody').text
+        address = address.split('\n')
+        logger.info(f'Address: {address}')
+    except NoSuchElementException:
+        address = []
+        logger.error('No address found')
+    try:
+        authors = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[2]/p').text
+        logger.info(f'Author: {authors}')
+    except NoSuchElementException:
+        authors = 'NA'
+        logger.error('No author found')
+    try:
+        date = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[3]/p[4]').text
+        logger.info(f'Date: {date}')
+    except NoSuchElementException:
+        date = 'NA'
+        logger.warning('No publish date found')
+    # page_text = driver.find_element_by_id('records_form').text.split('\n').text
+    return address, authors, date
+
+
+def search_paper_info(paper):
+    # search paper
+    search_paper(paper)
+    random_sleep(mu=5)
+
+    # ------------------------------------------------------------ #
+    # in search page
+    # ------------------------------------------------------------ #
+
+    idx = None # paper rank in search page
+    detail_link = None # matched datail page link
+    record_title_text = None
+    record_chunks = driver.find_elements_by_class_name('search-results-item')
+    for idx, record in enumerate(record_chunks):
+        # text of whole record, include title, author, journal, data, citation num
+        record_brief_text = record.text
+        # title object of record, which link to detail page
+        record_title = record.find_element_by_xpath('div[3]/div/div[1]/div/a')
+        record_title_text = record_title.text
+        # Check the matching of the given paper title and current record
+        if verify_title(record_title_text, paper) == True:
+            # add record to monitor to obtain H-index
+            add_to_monitor(idx + 1)
+            # record detail link
+            detail_link = driver.find_elements_by_class_name('search-results-item')[idx]
+            detail_link = detail_link.find_element_by_xpath('div[3]/div/div[1]/div/a')
+            break
+
+    # no matched paper found
+    if detail_link == None:
+        logger.warning(f'Cannot find paper: {paper}')
+        return None
+
+    # random_sleep()
+
+    # go into detail page
+    detail_link.click()
+
+    random_sleep()
+
+    # ------------------------------------------------------------ #
+    # in detail page
+    # ------------------------------------------------------------ #
+
+    # text of whole record page
+    record_detail_text = driver.find_element_by_id('records_form').text
+
+    # journal IF
+    impact_factor, jcr_rank, _ = get_journal_info(idx + 1)
+
+    # citation number
+    cite_num = get_citation_num()
+
+    # end searching if no citation
+    if cite_num == 0:
+        # go back to main search page
+        back_to_main()
+        return impact_factor, jcr_rank, cite_num
+
+    random_sleep(mu=1)
+
+    # ------------------------------------------------------------ #
+    # follow link if the paper is cited
+    # ------------------------------------------------------------ #
+
+    # click citation number
+    driver.find_element_by_css_selector('.flex-row-partition1 > a').click()
+    random_sleep()
+    # go to the detail page of first cite paper
+    driver.find_element_by_xpath('//*[@id="RECORD_1"]/div[3]/div/div[1]/div/a').click()
+    random_sleep()
+
+    # ------------------------------------------------------------ #
+    # in citation detail page
+    # ------------------------------------------------------------ #
+
+    # cite info
+    for aa in range(cite_num - 1):
+        get_cite_detail()
+        go_to_next_cite()
+        random_sleep()
+
+    # go back to main search page, now finish a search cycle
+    back_to_main()
+
+    return 0
+
+
+if __name__ == '__main__':
+    # initial driver and open website
+    driver = initial_driver()
+    driver.get(root_url)
+    title = driver.title
+    print(title)
+    random_sleep()
+
+    # read paper list
+    paper_list = [
+        'Level set formulation for automatic medical image segmentation based on fuzzy clustering',
+        'A Novel Clustering Method for Static Video Summarization',
+        'Split Bregman Method for Minimization of Fast Multiphase Image Segmentation Model for Inhomogeneous Images'
+    ]
+
+    for paper in paper_list:
+        result = search_paper_info(paper)
