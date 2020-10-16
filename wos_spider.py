@@ -11,6 +11,7 @@ Env.:       Python 3.7.3, WIN 10
 '''
 
 import os
+import re
 import time
 import random
 import logging
@@ -68,7 +69,7 @@ def search_paper(paper_title, author='Yang, Yunyun'):
     add_row_button = driver.find_element_by_xpath('//*[@id="addSearchRow1"]/a')
     if add_row_button.text == '+ 添加行':
         add_row_button.click()
-        logger.debug('Add new line in search block')
+        logger.info('Add new line in search block')
     random_sleep(mu=1)
 
     # put paper title
@@ -149,28 +150,71 @@ def verify_title(web_title, given_title):
     return True
 
 
-def get_cite_detail():
-    try:
-        address = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[6]/table[2]/tbody').text
-        address = address.split('\n')
-        logger.info(f'Address: {address}')
-    except NoSuchElementException:
-        address = []
+def get_cite_detail(record_detail_text):
+    
+    address = []
+    # locate address block
+    address_block = re.search('地址:(((?!地址).)*?)电子邮件', record_detail_text, re.DOTALL)
+    if address_block:
+        address = address_block.group(1)
+        # remove prefix like '\n[ 1 ]', using \n to avoid inside []
+        address = re.sub('\n\[\s*?\d+?\s*?\]', '', address)
+        # split to single address
+        address = [x.strip() for x in address.split('\n')]
+        address = list(filter(len, address))
+        logger.debug(f'address: {address}')
+    else:
         logger.error('No address found')
-    try:
-        authors = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[2]/p').text
-        logger.info(f'Author: {authors}')
-    except NoSuchElementException:
-        authors = 'NA'
+
+    authors = []
+    # locate author block
+    author_block = re.search('作者:(.*)', record_detail_text)
+    if author_block:
+        # split into single author
+        for author in author_block.group(1).split(';'):
+            # find the full name of author
+            author_fullname = re.search('\((.*?)\)', author)
+            if author_fullname:
+                author = author_fullname.group(1)
+            else:
+                logger.warning(f'Author: {author} do not have full name')
+            authors.append(author)
+        logger.debug(f'authors: {authors}')
+    else:
         logger.error('No author found')
-    try:
-        date = driver.find_element_by_xpath('//*[@id="records_form"]/div/div/div/div[1]/div/div[3]/p[4]').text
-        logger.info(f'Date: {date}')
-    except NoSuchElementException:
-        date = 'NA'
-        logger.warning('No publish date found')
-    # page_text = driver.find_element_by_id('records_form').text.split('\n').text
-    return address, authors, date
+
+    date = 'NA'
+    # locate date
+    date_block = re.search('((出版年)|(日期)):?\s*(.*)', record_detail_text)
+    if date_block:
+        date = date_block.group(4)
+        logger.debug(f'date: {date}')
+    else:
+        logger.error('No date found')
+    
+    title = 'NA'
+    # Title is the first row
+    title_block = re.search('.*', record_detail_text)
+    if title_block:
+        title = title_block.group()
+        logger.debug(f'title: {title}')
+    else:
+        logger.error('No title found')
+
+    if record_detail_text.split('\n')[2] == '查看 Web of Science ResearcherID 和 ORCID':
+        journal = record_detail_text.split('\n')[3]
+    else:
+        journal = record_detail_text.split('\n')[2]
+
+    paper_info = {
+        'title': title,
+        'journal': journal,
+        'address': address,
+        'authors': authors,
+        'date': date,
+    }
+
+    return paper_info
 
 
 def search_paper_info(paper, record_folder):
@@ -278,11 +322,16 @@ def search_paper_info(paper, record_folder):
     # ------------------------------------------------------------ #
 
     # cite info
+    cite_detail = []
     for aa in range(cite_num):
-        get_cite_detail()
+        cite_detail_text = driver.find_element_by_id('records_form').text
+        cite_info = get_cite_detail(cite_detail_text)
+        cite_detail.append(cite_info)
         if aa < cite_num-1:
             go_to_next_cite()
-        random_sleep()
+        random_sleep(mu=5)
+
+    search_result['CiteDetail'] = cite_detail
 
     # go back to main search page, now finish a search cycle
     back_to_main()
@@ -300,12 +349,15 @@ if __name__ == '__main__':
     random_sleep()
 
     # read paper list
-    paper_list = [
-        'Ultrasound pupil image segmentation based on edge detection and detection operators',
-        'Level set formulation for automatic medical image segmentation based on fuzzy clustering',
-        'A Novel Clustering Method for Static Video Summarization',
-        'Split Bregman Method for Minimization of Fast Multiphase Image Segmentation Model for Inhomogeneous Images',
-    ]
+    with open('杨云云发表论文清单.txt', 'r', encoding='utf8') as fp:
+        paper_list = fp.readlines()
+        paper_list = [x.strip() for x in paper_list]
+    # paper_list = [
+    #     'Ultrasound pupil image segmentation based on edge detection and detection operators',
+    #     'Level set formulation for automatic medical image segmentation based on fuzzy clustering',
+    #     'A Novel Clustering Method for Static Video Summarization',
+    #     'Split Bregman Method for Minimization of Fast Multiphase Image Segmentation Model for Inhomogeneous Images',
+    # ]
 
     # make record folder
     record_folder = f'./logs/{time_stamp}'
