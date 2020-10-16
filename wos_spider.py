@@ -10,6 +10,7 @@ version:    1.0
 Env.:       Python 3.7.3, WIN 10
 '''
 
+import os
 import time
 import random
 import logging
@@ -43,7 +44,6 @@ logger.addHandler(fhlr)
 
 # url
 root_url = 'https://apps.webofknowledge.com'
-# paper1 = 'Level set formulation for automatic medical image segmentation based on fuzzy clustering'
 
 # start browser
 def initial_driver():
@@ -51,7 +51,7 @@ def initial_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     driver = webdriver.Chrome(options=options)
-    driver.implicitly_wait(30)
+    driver.implicitly_wait(10)
     driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
         "source": """
         Object.defineProperty(navigator, 'webdriver', {
@@ -69,6 +69,7 @@ def search_paper(paper_title, author='Yang, Yunyun'):
     if add_row_button.text == '+ 添加行':
         add_row_button.click()
         logger.debug('Add new line in search block')
+    random_sleep(mu=1)
 
     # put paper title
     input1 = driver.find_element_by_xpath('//*[@id="value(input1)"]')
@@ -83,6 +84,7 @@ def search_paper(paper_title, author='Yang, Yunyun'):
     input2.send_keys(author)
     s2 = Select(driver.find_element_by_xpath('//*[@id="select2"]'))
     s2.select_by_visible_text('作者')
+    random_sleep(mu=1)
 
     # click search
     driver.find_element_by_id('searchCell2').click()
@@ -171,7 +173,7 @@ def get_cite_detail():
     return address, authors, date
 
 
-def search_paper_info(paper):
+def search_paper_info(paper, record_folder):
     # search paper
     search_paper(paper)
     random_sleep(mu=5)
@@ -180,9 +182,11 @@ def search_paper_info(paper):
     # in search page
     # ------------------------------------------------------------ #
 
-    idx = None # paper rank in search page
-    detail_link = None # matched datail page link
-    record_title_text = None
+    idx = None               # paper rank in search page
+    detail_link = None       # matched datail page link
+    record_title_text = None # paper title
+    record_brief_text = 'NA' # brief information of paper
+
     record_chunks = driver.find_elements_by_class_name('search-results-item')
     for idx, record in enumerate(record_chunks):
         # text of whole record, include title, author, journal, data, citation num
@@ -202,7 +206,16 @@ def search_paper_info(paper):
     # no matched paper found
     if detail_link == None:
         logger.warning(f'Cannot find paper: {paper}')
-        return None
+        # result dict
+        search_result = {
+            'Paper': paper,
+            'SearchTitle': None,
+            'IF': None,
+            'Rank': None,
+            'Citation': None,
+            'CiteDetail': [],
+        }
+        return search_result
 
     # random_sleep()
 
@@ -224,11 +237,28 @@ def search_paper_info(paper):
     # citation number
     cite_num = get_citation_num()
 
+    # save record
+    record_path = os.path.join(record_folder, paper.replace(':', '-'))
+    with open(record_path, 'w', encoding='utf8') as fp:
+        fp.write(record_brief_text)
+        fp.write(f'\nIF: {impact_factor}, RANK: {jcr_rank}, Citaion: {cite_num}\n\n')
+        fp.write(record_detail_text)
+
+    # result dict
+    search_result = {
+        'Paper': paper,
+        'SearchTitle': record_title_text,
+        'IF': impact_factor,
+        'Rank': jcr_rank,
+        'Citation': cite_num,
+        'CiteDetail': [],
+    }
+
     # end searching if no citation
     if cite_num == 0:
         # go back to main search page
         back_to_main()
-        return impact_factor, jcr_rank, cite_num
+        return search_result
 
     random_sleep(mu=1)
 
@@ -248,15 +278,17 @@ def search_paper_info(paper):
     # ------------------------------------------------------------ #
 
     # cite info
-    for aa in range(cite_num - 1):
+    for aa in range(cite_num):
         get_cite_detail()
-        go_to_next_cite()
+        if aa < cite_num-1:
+            go_to_next_cite()
         random_sleep()
 
     # go back to main search page, now finish a search cycle
     back_to_main()
 
-    return 0
+
+    return search_result
 
 
 if __name__ == '__main__':
@@ -269,10 +301,17 @@ if __name__ == '__main__':
 
     # read paper list
     paper_list = [
+        'Ultrasound pupil image segmentation based on edge detection and detection operators',
         'Level set formulation for automatic medical image segmentation based on fuzzy clustering',
         'A Novel Clustering Method for Static Video Summarization',
-        'Split Bregman Method for Minimization of Fast Multiphase Image Segmentation Model for Inhomogeneous Images'
+        'Split Bregman Method for Minimization of Fast Multiphase Image Segmentation Model for Inhomogeneous Images',
     ]
 
+    # make record folder
+    record_folder = f'./logs/{time_stamp}'
+    os.mkdir(record_folder)
+
+    result_list = []
     for paper in paper_list:
-        result = search_paper_info(paper)
+        result = search_paper_info(paper, record_folder)
+        result_list.append(result)
