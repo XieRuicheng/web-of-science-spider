@@ -13,6 +13,7 @@ Env.:       Python 3.7.3, WIN 10
 import os
 import re
 import time
+import yaml
 import random
 import logging
 
@@ -71,6 +72,14 @@ def initial_driver():
     return driver
 
 
+def log_in(email, passwd):
+    driver.find_element_by_id('signin').click()
+    driver.find_element_by_xpath('/html/body/div[1]/div[22]/ul[2]/li[1]/ul/li[1]/a').click()
+    driver.find_element_by_id('email').send_keys(email)
+    driver.find_element_by_id('password').send_keys(passwd)
+    driver.find_element_by_id('signInButton').click()
+
+
 def search_paper(paper_title, author='Yang, Yunyun'):
     logger.info(f'Processing {paper}')
     # add a search row if there only exist one
@@ -106,26 +115,41 @@ def add_to_monitor(num):
         driver.find_element_by_id('markedListButton').click()
 
 
-def get_journal_info(idx):
+def get_journal_info():
+    # page number
+    current_page, *_ = get_page_num()
+
+
+    # click journal info button
     try:
-        # click journal info button
         driver.find_element_by_css_selector('a.focusable-link').click()
-        cite_text = driver.find_element_by_id(f'show_journal_overlay_{idx}').text
-
-        # extract IF and JCR Rank
-        impact_factor = [float(x) for x in cite_text.split('\n')[2].split()] # [this year, 5 year]
-        jcr_rank = cite_text.split('\n')[5].split()[-1]
-
-        logger.info(f'Journal IF is {impact_factor[0]}, JCR rank is {jcr_rank}')
-
-        # close journal info window
-        random_sleep(mu=2)
-        driver.find_element_by_css_selector(f'#show_journal_overlay_{idx} > p.closeWindow > button').click()
-        return impact_factor[0], jcr_rank, cite_text
-
     except ElementNotInteractableException:
         logger.info(f'Cannot find JCR report')
-        return 0, None, None
+        return 0, 'NA', [], 'NA'
+
+    cite_text = driver.find_element_by_id(f'show_journal_overlay_{current_page}').text
+
+    # extract IF and JCR Rank
+    # TODO: select rank in MATH or Image
+    impact_factor = [float(x) for x in cite_text.split('\n')[2].split()] # [this year, 5 year]
+    jcr_rank = cite_text.split('\n')[5].split()[-1]
+
+    logger.info(f'Journal IF is {impact_factor[0]}, JCR rank is {jcr_rank}')
+
+    # JCR sort
+    jcr_sort = re.search('分区(.*?)数据来自', cite_text, re.DOTALL)
+    if jcr_sort:
+        jcr_sort = [x.strip() for x in jcr_sort.group(1).split('\n')]
+        jcr_sort = list(filter(len, jcr_sort))
+        logger.debug(f'JCR Sort is {jcr_sort}')
+    else:
+        logger.error('JCR Sort RE error')
+
+    # close journal info window
+    random_sleep(mu=2)
+    driver.find_element_by_css_selector(f'#show_journal_overlay_{current_page} > p.closeWindow > button').click()
+
+    return impact_factor[0], jcr_rank, jcr_sort, cite_text
 
 
 def get_citation_num():
@@ -140,18 +164,21 @@ def back_to_main():
     driver.find_element_by_xpath('//*[@id="skip-to-navigation"]/ul[1]/li[1]/a').click()
 
 
-def go_to_next_cite():
+def get_page_num():
     # page number
     page_num_text = driver.find_element_by_id('paginationForm2').text
-    logger.info(f'Processing citation in {page_num_text}')
 
     page_group = re.search('第 (\d+) 条，共 (\d+) 条', page_num_text)
-    if page_group:
-        current_page = int(page_group.group(1))
-        total_page = int(page_group.group(2))
-    else:
-        logger.error('Page RE of ID do not match')
-        return 1
+    current_page = int(page_group.group(1))
+    total_page = int(page_group.group(2))
+
+    return current_page, total_page, page_num_text
+
+
+def go_to_next_cite():
+    # page number
+    current_page, total_page, page_num_text = get_page_num()
+    logger.info(f'Processing citation in {page_num_text}')
 
     if current_page < total_page:
         # click next page
@@ -291,11 +318,16 @@ def search_paper_info(paper, record_folder):
         # result dict
         search_result = {
             'Paper': paper,
-            'SearchTitle': None,
-            'IF': None,
-            'Rank': None,
-            'Citation': None,
+            'SearchTitle': 'NA',
+            'IF': 'NA',
+            'Rank': 'NA',
+            'Sort': [],
+            'Citation': 'NA',
             'CiteDetail': [],
+            'Journal': 'NA',
+            'address': 'NA',
+            'authors': 'NA',
+            'date': 'NA',
         }
         return search_result
 
@@ -314,7 +346,7 @@ def search_paper_info(paper, record_folder):
     record_detail_text = wait_find(driver, By.ID, 'records_form').text
 
     # journal IF
-    impact_factor, jcr_rank, _ = get_journal_info(idx + 1)
+    impact_factor, jcr_rank, jcr_sort, cite_text = get_journal_info()
 
     # citation number
     cite_num = get_citation_num()
@@ -324,7 +356,11 @@ def search_paper_info(paper, record_folder):
     with open(record_path, 'w', encoding='utf8') as fp:
         fp.write(record_brief_text)
         fp.write(f'\nIF: {impact_factor}, RANK: {jcr_rank}, Citaion: {cite_num}\n\n')
+        fp.write(cite_text)
         fp.write(record_detail_text)
+
+    # extract journal, author, address from record
+    record_info_dict = get_cite_detail(record_detail_text)
 
     # result dict
     search_result = {
@@ -332,8 +368,13 @@ def search_paper_info(paper, record_folder):
         'SearchTitle': record_title_text,
         'IF': impact_factor,
         'Rank': jcr_rank,
+        'Sort': jcr_sort,
         'Citation': cite_num,
         'CiteDetail': [],
+        'Journal': record_info_dict['journal'],
+        'address': record_info_dict['address'],
+        'authors': record_info_dict['authors'],
+        'date': record_info_dict['date'],
     }
 
     # end searching if no citation
@@ -370,9 +411,14 @@ def search_paper_info(paper, record_folder):
     # cite info
     cite_detail = []
     for aa in range(cite_num):
+        # Title, author, address of citing paper
         cite_detail_text = wait_find(driver, By.ID, 'records_form').text
-        # cite_detail_text = driver.find_element_by_id('records_form').text
         cite_info = get_cite_detail(cite_detail_text)
+        # JCR info of citing paper
+        cite_if, cite_jcr_rank, cite_jcr_sort, _ = get_journal_info()
+        cite_info['IF'] = cite_if
+        cite_info['Rank'] = cite_jcr_rank
+        cite_info['Sort'] = cite_jcr_sort
         cite_detail.append(cite_info)
         go_to_next_cite()
         random_sleep(mu=8)
@@ -394,6 +440,10 @@ if __name__ == '__main__':
     print(title)
     random_sleep()
 
+    # login for H-Index
+    # log_in('x_rc@qq.com', 'Wos123%890')
+    # random_sleep()
+
     # read paper list
     with open('杨云云发表论文清单.txt', 'r', encoding='utf8') as fp:
         paper_list = fp.readlines()
@@ -406,8 +456,16 @@ if __name__ == '__main__':
     total_paper = len(paper_list)
     result_list = []
     for aa, paper in enumerate(paper_list):
-        if aa < 24:
-            continue
-        logger.info(f'Processing {aa} in {total_paper}')
+        # if aa + 1 < 12:
+        #     continue
+        logger.info(f'Processing {aa + 1} in {total_paper}')
         result = search_paper_info(paper, record_folder)
         result_list.append(result)
+
+    # save to YAML file
+    result_dict = {f'paper{aa+1}': x for aa, x in enumerate(result_list)}
+    with open(f'./result/{time_stamp}_result.yaml', 'w') as fp:
+        yaml.dump(result_dict, fp)
+
+    # citation report
+    # driver.find_element_by_xpath('//*[@id="skip-to-navigation"]/ul[2]/li[4]/a').click()
