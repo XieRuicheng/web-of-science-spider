@@ -227,6 +227,8 @@ def get_cite_detail(record_detail_text):
         # split to single address
         address = [x.strip() for x in address.split('\n')]
         address = list(filter(len, address))
+        # remove prefix like '[ 1 ] ', using ^ to avoid inside []
+        address = [re.sub('^\s*\[\s*?\d+?\s*?\]\s*', '', x) for x in address]
         logger.debug(f'address: {address}')
     else:
         logger.error('No address found')
