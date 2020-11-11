@@ -70,3 +70,17 @@ citation_unique_dict = {
 save_name = source_name.replace('result', 'institute_journal_author')
 with open(f'./result/{save_name}', 'w') as fp:
     yaml.dump(citation_unique_dict, fp)
+
+
+# save without citation detail
+records_without_cite = {}
+for key, val in records_dict.items():
+    new_val = records_dict[key].copy()
+    del new_val['CiteDetail']
+    key_num = int(key[5:])
+    new_key = f'paper-{key_num:02d}'
+    records_without_cite[new_key] = new_val
+
+save_name = source_name.replace('result', 'result_without_citation')
+with open(f'./result/{save_name}', 'w') as fp:
+    yaml.dump(records_without_cite, fp)
