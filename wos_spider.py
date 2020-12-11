@@ -28,6 +28,10 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException
 
 
+# configuration
+paper_list_name = 'PaperList.txt'
+author_name = 'AuthorName'
+
 # logging configuration
 logger = logging.getLogger('wos_spider_logger')
 if (logger.hasHandlers()):
@@ -286,7 +290,7 @@ def get_cite_detail(record_detail_text):
 
 def search_paper_info(paper, record_folder):
     # search paper
-    search_paper(paper, 'UserName')
+    search_paper(paper, author=author_name)
     random_sleep(mu=5)
 
     # ------------------------------------------------------------ #
@@ -447,7 +451,7 @@ if __name__ == '__main__':
     # random_sleep()
 
     # read paper list
-    with open('PaperList.txt', 'r', encoding='utf8') as fp:
+    with open(paper_list_name, 'r', encoding='utf8') as fp:
         paper_list = fp.readlines()
         paper_list = [x.strip() for x in paper_list]
 
