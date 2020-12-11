@@ -139,5 +139,9 @@ cython_debug/
 
 driver/
 logs/
-杨云云发表论文清单.txt
 *.yaml
+*.txt
+
+# example
+# !PaperList.txt
+# !result/Oct17_16_29_result.yaml

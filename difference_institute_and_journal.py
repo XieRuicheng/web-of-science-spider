@@ -13,6 +13,7 @@ Env.:       Python 3.7.3, WIN 10
 import re
 import yaml
 
+filter_name = 'UserName'
 
 def sort_IF(x, y):
     if x['IF'] < y['IF']:
@@ -44,7 +45,7 @@ for record in records_dict.values():
         author_list += citation['authors']
         journal_list.append(citation['journal'])
         # journal other citations
-        if ('Yang, Yunyun' not in citation['authors']) and (float(citation['IF']) > 0):
+        if (filter_name not in citation['authors']) and (float(citation['IF']) > 0):
             sci_journal_other_IF.append({
                 'journal': citation['journal'],
                 'IF': citation['IF'],

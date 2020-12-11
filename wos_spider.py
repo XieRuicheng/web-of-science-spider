@@ -80,7 +80,7 @@ def log_in(email, passwd):
     driver.find_element_by_id('signInButton').click()
 
 
-def search_paper(paper_title, author='Yang, Yunyun'):
+def search_paper(paper_title, author='UserName'):
     logger.info(f'Processing {paper}')
     # add a search row if there only exist one
     add_row_button = driver.find_element_by_xpath('//*[@id="addSearchRow1"]/a')
@@ -191,7 +191,7 @@ def go_to_next_cite():
     return 0
 
 
-def random_sleep(mu=5, sigma=2, min_time=3, max_time=15):
+def random_sleep(mu=7, sigma=2, min_time=3, max_time=30):
     sleep_time = random.normalvariate(mu, sigma)
     sleep_time = max(sleep_time, min_time)
     sleep_time = min(sleep_time, max_time)
@@ -286,7 +286,7 @@ def get_cite_detail(record_detail_text):
 
 def search_paper_info(paper, record_folder):
     # search paper
-    search_paper(paper)
+    search_paper(paper, 'UserName')
     random_sleep(mu=5)
 
     # ------------------------------------------------------------ #
@@ -443,11 +443,11 @@ if __name__ == '__main__':
     random_sleep()
 
     # login for H-Index
-    # log_in('x_rc@qq.com', 'Wos123%890')
+    # log_in('UserName', 'Passwd')
     # random_sleep()
 
     # read paper list
-    with open('杨云云发表论文清单.txt', 'r', encoding='utf8') as fp:
+    with open('PaperList.txt', 'r', encoding='utf8') as fp:
         paper_list = fp.readlines()
         paper_list = [x.strip() for x in paper_list]
 
